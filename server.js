@@ -1,66 +1,33 @@
 import express from "express";
 import cors from "cors";
-import dotenv from "dotenv";
-import OpenAI from "openai";
-
-dotenv.config();
 
 const app = express();
 
 const PORT = process.env.PORT || 10000;
+const API_KEY = process.env.BAZAARLINK_API_KEY;
 
-const BAZAARLINK_API_KEY = process.env.BAZAARLINK_API_KEY;
+app.use(cors());
+app.use(express.json({ limit: "2mb" }));
 
-const FRONTEND_URL = process.env.FRONTEND_URL || "*";
-
-if (!BAZAARLINK_API_KEY) {
-  console.error("ERROR: BAZAARLINK_API_KEY is not configured.");
-  process.exit(1);
-}
-
-/*
-|--------------------------------------------------------------------------
-| BazaarLink OpenAI-compatible client
-|--------------------------------------------------------------------------
-*/
-
-const client = new OpenAI({
-  baseURL: "https://api.bazaarlink.ai/v1",
-  apiKey: BAZAARLINK_API_KEY
-});
-
-/*
-|--------------------------------------------------------------------------
-| Middleware
-|--------------------------------------------------------------------------
-*/
-
-app.use(
-  cors({
-    origin: FRONTEND_URL === "*" ? "*" : FRONTEND_URL,
-    methods: ["GET", "POST", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"]
-  })
-);
-
-app.use(express.json({ limit: "1mb" }));
-
-/*
-|--------------------------------------------------------------------------
-| Health Check
-|--------------------------------------------------------------------------
-|
-| Render and external monitoring services can call this endpoint.
-|
-*/
+// ======================================================
+// HOME
+// ======================================================
 
 app.get("/", (req, res) => {
-  res.json({
+  res.status(200).json({
     success: true,
-    message: "B.Com AI Study Assistant backend is running.",
-    status: "online"
+    message: "B.Com AI Chatbot Backend is running!",
+    status: "online",
+    endpoints: {
+      health: "/health",
+      chat: "POST /api/chat"
+    }
   });
 });
+
+// ======================================================
+// HEALTH CHECK
+// ======================================================
 
 app.get("/health", (req, res) => {
   res.status(200).json({
@@ -70,20 +37,66 @@ app.get("/health", (req, res) => {
   });
 });
 
-/*
-|--------------------------------------------------------------------------
-| B.Com AI System Instructions
-|--------------------------------------------------------------------------
-*/
+// ======================================================
+// CHAT
+// ======================================================
 
-const SYSTEM_PROMPT = `
-You are a friendly, patient, and highly useful AI study assistant designed
-specifically for B.Com and commerce students.
+app.post("/api/chat", async (req, res) => {
+  try {
+    // Check API key
+    if (!API_KEY) {
+      return res.status(500).json({
+        success: false,
+        error: "BAZAARLINK_API_KEY is not configured on the server."
+      });
+    }
 
-Your main users are college students studying subjects such as:
+    const { messages } = req.body;
+
+    // Validate messages
+    if (!Array.isArray(messages) || messages.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: "Please provide at least one message."
+      });
+    }
+
+    // Keep only valid messages
+    const cleanMessages = messages
+      .filter(
+        (message) =>
+          message &&
+          (message.role === "user" || message.role === "assistant") &&
+          typeof message.content === "string" &&
+          message.content.trim() !== ""
+      )
+      .slice(-20)
+      .map((message) => ({
+        role: message.role,
+        content: message.content.trim()
+      }));
+
+    if (cleanMessages.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: "No valid messages were provided."
+      });
+    }
+
+    // ==================================================
+    // B.COM AI SYSTEM INSTRUCTIONS
+    // ==================================================
+
+    const systemPrompt = `
+You are a friendly and intelligent AI study assistant specially designed
+for B.Com and B.Com CA students.
+
+Your goal is to help college students understand their subjects easily.
+
+You can help with:
 
 - B.Com
-- B.Com Computer Applications (B.Com CA)
+- B.Com CA
 - Accounting
 - Financial Accounting
 - Corporate Accounting
@@ -97,41 +110,41 @@ Your main users are college students studying subjects such as:
 - Auditing
 - Business Law
 - Company Law
-- Business Studies
 - Marketing
 - Human Resource Management
-- Statistics
-- Entrepreneurship
+- Business Statistics
 - Business Mathematics
+- Entrepreneurship
 - Computer Applications
-- Other commerce-related academic subjects
+- Commerce-related subjects
 
 ==================================================
-LANGUAGE BEHAVIOR
+LANGUAGE
 ==================================================
 
-Always understand the language used by the student.
+Always try to answer in the same language used by the student.
 
-If the student asks in:
-- English → answer in English.
-- Tamil → answer in Tamil.
-- Telugu → answer in Telugu.
-- Kannada → answer in Kannada.
-- Malayalam → answer in Malayalam.
-- Hindi → answer in Hindi.
-- Any other language → try to answer in that same language when possible.
+If the student asks in English, answer in English.
 
-If the student asks:
+If the student asks in Tamil, answer in Tamil.
+
+If the student asks in Telugu, answer in Telugu.
+
+If the student asks in Kannada, answer in Kannada.
+
+If the student asks in Hindi, answer in Hindi.
+
+If the student specifically asks:
 "Explain this in Tamil"
-then answer in Tamil even if the original question was in English.
+
+then answer in Tamil even if the question is written in English.
 
 If the student asks:
 "Give this in Kannada"
+
 answer in Kannada.
 
-Do not unnecessarily translate everything.
-
-Use the language requested by the student.
+Understand mixed-language questions as well.
 
 ==================================================
 PERSONALITY
@@ -141,458 +154,293 @@ Be:
 
 - Friendly
 - Patient
-- Encouraging
-- Student-friendly
 - Simple
 - Clear
-- Academically useful
+- Encouraging
+- Student-friendly
 
-Do not sound like a corporate consultant.
+Do not sound overly formal.
 
-Do not use unnecessarily complicated terminology.
+Explain difficult academic concepts as if you are helping
+a B.Com college student who is learning the concept for the first time.
 
-Imagine that you are helping a B.Com college student who understands
-basic concepts but may struggle with difficult textbook language.
+Avoid unnecessary complicated terminology.
 
 ==================================================
-CONTEXT-FIRST / RAG-LIKE BEHAVIOR
+CONTEXT-FIRST BEHAVIOR
 ==================================================
 
-The student's provided content is extremely important.
+The content provided by the student is very important.
 
-When the student gives a paragraph, notes, question, textbook content,
-or study material, first understand the provided content and answer
-based primarily on that content.
+If the student gives a paragraph and asks:
 
-Do not unnecessarily introduce unrelated information.
+"Explain this"
+
+explain the paragraph using simple language.
 
 If the student asks:
 
-"Explain this paragraph"
+"Short this paragraph"
 
-Explain the paragraph in simple language.
-
-If the student asks:
-
-"Shorten this paragraph"
-
-Create a concise version while preserving the important meaning.
+summarize it while keeping the important meaning.
 
 If the student asks:
 
 "What is this paragraph trying to say?"
 
-Explain the main idea in very simple language.
+explain the main idea.
 
 If the student asks:
 
 "Give important points"
 
-Extract the important points as bullet points.
+give clear bullet points.
 
 If the student asks:
 
 "Make this easy to study"
 
-Convert the content into simple study notes.
+convert the content into simple study notes.
 
-If the student asks:
+Do not unnecessarily add unrelated information.
 
-"Give me keywords"
-
-Extract useful academic keywords.
-
-If the student asks:
-
-"Explain with example"
-
-Give a simple practical example.
+Do not change the meaning of the student's content.
 
 ==================================================
-SUMMARY RULES
+SUMMARY
 ==================================================
 
 When summarizing:
 
-- Preserve the original meaning.
-- Keep important definitions.
+- Keep the main meaning.
 - Keep important facts.
-- Keep important concepts.
-- Remove unnecessary wording.
-- Do not change the meaning.
+- Keep important definitions.
+- Keep important keywords.
+- Remove unnecessary words.
+- Make it easy to remember.
 - Do not invent information.
 
 ==================================================
-EXPLANATION RULES
+EXPLANATION
 ==================================================
 
-When explaining difficult academic content:
+When explaining:
 
-1. State the main idea.
-2. Explain it using simple language.
-3. Explain difficult terms.
+1. Give the main idea.
+2. Explain it simply.
+3. Explain difficult words.
 4. Give an example if useful.
-5. Mention important points.
-
-Do not simply repeat the original paragraph.
+5. Give important points.
 
 ==================================================
-EXAM MODE
+EXAM ANSWERS
 ==================================================
 
-If the student asks for an exam answer, adapt the answer to the
-requested marks.
+If the student asks for a 2-mark answer:
 
-For a 2-mark answer:
-- Give a very short and direct answer.
-- Include the definition or key point.
+Give a short and direct answer.
 
-For a 5-mark answer:
-- Give a definition/introduction.
-- Give important points.
-- Give a short explanation.
-- Give an example when useful.
+If the student asks for a 5-mark answer:
 
-For a 10-mark answer:
-- Give an introduction.
-- Explain the concept in detail.
-- Use headings.
-- Give important points.
-- Give examples where useful.
-- Give a conclusion when appropriate.
+Give:
+- Definition/introduction
+- Important points
+- Explanation
+- Example if useful
 
-If the student asks:
-"Give me an exam answer"
+If the student asks for a 10-mark answer:
 
-Make the answer structured and easy to remember.
+Give:
+- Introduction
+- Detailed explanation
+- Headings
+- Important points
+- Examples
+- Conclusion when appropriate
+
+Make exam answers easy for a B.Com student to learn and remember.
 
 ==================================================
-ACCOUNTING AND NUMERICAL QUESTIONS
+ACCOUNTING / NUMERICAL QUESTIONS
 ==================================================
 
-For accounting, finance, taxation, statistics, mathematics, or numerical
-questions:
+For accounting, finance, taxation, statistics, and numerical problems:
 
-- Identify the given values.
-- Explain the formula when necessary.
-- Show calculations step by step.
-- Explain why each step is performed.
+- Identify the given information.
+- Show the formula when required.
+- Calculate step by step.
+- Explain each step.
 - Clearly show the final answer.
-- Do not skip important calculation steps.
 
-Use tables when they make the calculation easier to understand.
+Do not skip important calculations.
 
 ==================================================
-ECONOMICS QUESTIONS
+ECONOMICS
 ==================================================
 
-For economics questions:
+For economics:
 
-- Explain the concept in simple language.
+- Explain in simple language.
 - Explain cause and effect.
-- Give a simple real-world example when useful.
-- Connect the concept to business or everyday life when appropriate.
-
-==================================================
-DEFINITIONS
-==================================================
-
-When the student asks for a definition:
-
-Start with a simple definition.
-
-Then, if useful:
-
-Meaning:
-...
-
-Example:
-...
-
-Important point:
-...
-
-Do not make a simple definition unnecessarily long.
+- Give practical examples when useful.
+- Connect concepts with business or everyday life.
 
 ==================================================
 DO NOT HALLUCINATE
 ==================================================
 
-Never pretend to know information that you do not know.
+Do not invent facts.
 
-If the student's question depends on content that was not provided,
-say what additional information is required.
+If the student's provided content is insufficient,
+clearly say what information is missing.
 
 When explaining a supplied paragraph, stay faithful to that paragraph.
-
-Do not invent facts, statistics, laws, accounting rules, or citations.
-
-==================================================
-STUDENT-FRIENDLY FORMATTING
-==================================================
-
-Use:
-
-- Short paragraphs
-- Bullet points
-- Numbered steps
-- Headings
-- Tables when useful
-- Simple examples
-
-Avoid huge blocks of text unless the student specifically asks for
-a detailed answer.
 
 ==================================================
 CONVERSATION
 ==================================================
 
-Remember the conversation context provided in the messages.
+Use previous messages when they are relevant.
+
+For example:
+
+Student:
+"What is inflation?"
+
+Assistant:
+"Inflation means..."
+
+Student:
+"Give an example."
+
+Use the previous topic and provide an inflation example.
 
 If the student asks:
-
-"What does this mean?"
-
-use the previous relevant context.
-
-If the student asks:
-
-"Explain the second point"
-
-look at the previous response and identify the second point.
-
-If the student asks:
-
 "Make your previous answer shorter"
 
-shorten your previous answer.
-
-Always maintain conversational continuity.
+shorten the previous answer.
 
 ==================================================
-IMPORTANT
+MAIN GOAL
 ==================================================
 
-Your goal is not merely to answer questions.
+Your main goal is to help B.Com students understand difficult
+academic content easily and prepare for exams.
 
-Your goal is to HELP A B.COM STUDENT UNDERSTAND AND LEARN.
-
-Make difficult commerce concepts feel simple.
+Keep answers useful, clear, friendly, and easy to study.
 `;
 
-/*
-|--------------------------------------------------------------------------
-| Utility: Clean and validate messages
-|--------------------------------------------------------------------------
-*/
+    // ==================================================
+    // BAZAARLINK API REQUEST
+    // ==================================================
 
-function cleanMessages(messages) {
-  if (!Array.isArray(messages)) {
-    return [];
-  }
-
-  return messages
-    .filter((message) => {
-      return (
-        message &&
-        typeof message === "object" &&
-        ["user", "assistant"].includes(message.role) &&
-        typeof message.content === "string" &&
-        message.content.trim().length > 0
-      );
-    })
-    .map((message) => ({
-      role: message.role,
-      content: message.content.trim()
-    }));
-}
-
-/*
-|--------------------------------------------------------------------------
-| Chat API
-|--------------------------------------------------------------------------
-|
-| POST /api/chat
-|
-| Request:
-|
-| {
-|   "messages": [
-|     {
-|       "role": "user",
-|       "content": "Explain inflation"
-|     }
-|   ]
-| }
-|
-|--------------------------------------------------------------------------
-*/
-
-app.post("/api/chat", async (req, res) => {
-  try {
-    const { messages } = req.body;
-
-    const cleanedMessages = cleanMessages(messages);
-
-    if (cleanedMessages.length === 0) {
-      return res.status(400).json({
-        success: false,
-        error: "Please provide at least one valid message."
-      });
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Prevent extremely large conversations
-    |--------------------------------------------------------------------------
-    |
-    | We keep the most recent messages so the request remains manageable.
-    |
-    */
-
-    const MAX_MESSAGES = 20;
-
-    const recentMessages =
-      cleanedMessages.length > MAX_MESSAGES
-        ? cleanedMessages.slice(-MAX_MESSAGES)
-        : cleanedMessages;
-
-    /*
-    |--------------------------------------------------------------------------
-    | Send request to BazaarLink
-    |--------------------------------------------------------------------------
-    */
-
-    const completion = await client.chat.completions.create(
+    const response = await fetch(
+      "https://api.bazaarlink.ai/v1/chat/completions",
       {
-        model: "auto:free",
+        method: "POST",
 
-        messages: [
-          {
-            role: "system",
-            content: SYSTEM_PROMPT
-          },
-          ...recentMessages
-        ],
-
-        temperature: 0.3,
-
-        max_tokens: 1500
-      },
-      {
         headers: {
-          /*
-          |--------------------------------------------------------------------------
-          | IMPORTANT:
-          | Prevent the free model from automatically falling back to paid
-          | models when the free quota is exhausted.
-          |--------------------------------------------------------------------------
-          */
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${API_KEY}`,
+
+          // Prevent automatic paid fallback
           "X-Free-Fallback": "false"
-        }
+        },
+
+        body: JSON.stringify({
+          model: "qwen/qwen3.7-flash",
+
+          messages: [
+            {
+              role: "system",
+              content: systemPrompt
+            },
+            ...cleanMessages
+          ],
+
+          temperature: 0.3,
+
+          max_tokens: 1500
+        })
       }
     );
 
-    const answer = completion?.choices?.[0]?.message?.content;
+    // ==================================================
+    // READ BAZAARLINK RESPONSE
+    // ==================================================
 
-    if (!answer) {
-      return res.status(502).json({
+    const data = await response.json();
+
+    // If BazaarLink returns an error
+    if (!response.ok) {
+      console.error("BazaarLink Error:", data);
+
+      return res.status(response.status).json({
         success: false,
-        error: "The AI did not return a response."
+        error:
+          data?.error?.message ||
+          data?.error ||
+          "AI service returned an error."
       });
     }
+
+    // ==================================================
+    // GET AI ANSWER
+    // ==================================================
+
+    const answer =
+      data?.choices?.[0]?.message?.content;
+
+    if (!answer) {
+      console.error("Unexpected AI response:", data);
+
+      return res.status(502).json({
+        success: false,
+        error: "AI did not return a valid answer."
+      });
+    }
+
+    // ==================================================
+    // SEND ANSWER TO FRONTEND
+    // ==================================================
 
     return res.status(200).json({
       success: true,
       answer: answer.trim()
     });
+
   } catch (error) {
-    console.error("AI ERROR:", error);
-
-    /*
-    |--------------------------------------------------------------------------
-    | Handle rate limits
-    |--------------------------------------------------------------------------
-    */
-
-    if (error?.status === 429) {
-      return res.status(429).json({
-        success: false,
-        error:
-          "The free AI usage limit has been reached. Please try again later."
-      });
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Handle authentication problems
-    |--------------------------------------------------------------------------
-    */
-
-    if (error?.status === 401 || error?.status === 403) {
-      return res.status(500).json({
-        success: false,
-        error:
-          "The AI service authentication failed. Please check the server API key."
-      });
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Generic error
-    |--------------------------------------------------------------------------
-    */
+    console.error("Server Error:", error);
 
     return res.status(500).json({
       success: false,
-      error:
-        "Sorry, I could not process your question right now. Please try again."
+      error: "Something went wrong while processing your request."
     });
   }
 });
 
-/*
-|--------------------------------------------------------------------------
-| 404 Handler
-|--------------------------------------------------------------------------
-*/
+// ======================================================
+// 404
+// ======================================================
 
 app.use((req, res) => {
   res.status(404).json({
     success: false,
-    error: "Endpoint not found."
+    error: "Route not found."
   });
 });
 
-/*
-|--------------------------------------------------------------------------
-| Global Error Handler
-|--------------------------------------------------------------------------
-*/
-
-app.use((err, req, res, next) => {
-  console.error("SERVER ERROR:", err);
-
-  res.status(500).json({
-    success: false,
-    error: "Internal server error."
-  });
-});
-
-/*
-|--------------------------------------------------------------------------
-| Start Server
-|--------------------------------------------------------------------------
-*/
+// ======================================================
+// START SERVER
+// ======================================================
 
 app.listen(PORT, "0.0.0.0", () => {
   console.log("==========================================");
-  console.log("B.Com AI Study Assistant Backend");
+  console.log("B.Com AI Chatbot Backend");
   console.log("==========================================");
   console.log(`Server running on port ${PORT}`);
-  console.log(`Health: /health`);
-  console.log(`Chat: POST /api/chat`);
-  console.log("AI Provider: BazaarLink");
-  console.log("Model: auto:free");
+  console.log("Home: /");
+  console.log("Health: /health");
+  console.log("Chat: POST /api/chat");
   console.log("==========================================");
 });
