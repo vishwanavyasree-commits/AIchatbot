@@ -1,0 +1,20 @@
+{
+  "name": "bcom-ai-chatbot-backend",
+  "version": "1.0.0",
+  "description": "Backend API for a B.Com student AI study assistant",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "openai": "^5.19.1"
+  }
+}
