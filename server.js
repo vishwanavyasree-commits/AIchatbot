@@ -10,6 +10,43 @@ app.use(cors());
 app.use(express.json({ limit: "2mb" }));
 
 // ======================================================
+// REMOVE MARKDOWN FORMATTING
+// ======================================================
+
+function cleanAIResponse(text) {
+  if (!text || typeof text !== "string") {
+    return "";
+  }
+
+  let cleaned = text;
+
+  // Remove code blocks
+  cleaned = cleaned.replace(/```[\s\S]*?```/g, "");
+
+  // Remove bold and italic markers
+  cleaned = cleaned.replace(/\*\*\*(.*?)\*\*\*/g, "$1");
+  cleaned = cleaned.replace(/\*\*(.*?)\*\*/g, "$1");
+  cleaned = cleaned.replace(/\*(.*?)\*/g, "$1");
+
+  // Remove heading markers
+  cleaned = cleaned.replace(/^#{1,6}\s*/gm, "");
+
+  // Remove inline code markers
+  cleaned = cleaned.replace(/`([^`]+)`/g, "$1");
+
+  // Remove Markdown links but keep the text
+  cleaned = cleaned.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
+
+  // Remove horizontal rules
+  cleaned = cleaned.replace(/^[-*_]{3,}\s*$/gm, "");
+
+  // Clean excessive blank lines
+  cleaned = cleaned.replace(/\n{3,}/g, "\n\n");
+
+  return cleaned.trim();
+}
+
+// ======================================================
 // HOME
 // ======================================================
 
@@ -26,7 +63,7 @@ app.get("/", (req, res) => {
 });
 
 // ======================================================
-// HEALTH CHECK
+// HEALTH
 // ======================================================
 
 app.get("/health", (req, res) => {
@@ -43,17 +80,15 @@ app.get("/health", (req, res) => {
 
 app.post("/api/chat", async (req, res) => {
   try {
-    // Check API key
     if (!API_KEY) {
       return res.status(500).json({
         success: false,
-        error: "BAZAARLINK_API_KEY is not configured on the server."
+        error: "BAZAARLINK_API_KEY is not configured."
       });
     }
 
     const { messages } = req.body;
 
-    // Validate messages
     if (!Array.isArray(messages) || messages.length === 0) {
       return res.status(400).json({
         success: false,
@@ -61,7 +96,6 @@ app.post("/api/chat", async (req, res) => {
       });
     }
 
-    // Keep only valid messages
     const cleanMessages = messages
       .filter(
         (message) =>
@@ -84,254 +118,149 @@ app.post("/api/chat", async (req, res) => {
     }
 
     // ==================================================
-    // B.COM AI SYSTEM INSTRUCTIONS
+    // B.COM AI INSTRUCTIONS
     // ==================================================
 
     const systemPrompt = `
-You are a friendly and intelligent AI study assistant specially designed
-for B.Com and B.Com CA students.
+You are a friendly AI study assistant specially designed for B.Com
+and B.Com CA college students.
 
-Your goal is to help college students understand their subjects easily.
+You help students with:
 
-You can help with:
+Accounting
+Financial Accounting
+Corporate Accounting
+Cost Accounting
+Management Accounting
+Economics
+Business Economics
+Finance
+Banking
+Taxation
+Auditing
+Business Law
+Company Law
+Marketing
+Human Resource Management
+Business Statistics
+Business Mathematics
+Entrepreneurship
+Computer Applications
+and other Commerce subjects.
 
-- B.Com
-- B.Com CA
-- Accounting
-- Financial Accounting
-- Corporate Accounting
-- Cost Accounting
-- Management Accounting
-- Economics
-- Business Economics
-- Finance
-- Banking
-- Taxation
-- Auditing
-- Business Law
-- Company Law
-- Marketing
-- Human Resource Management
-- Business Statistics
-- Business Mathematics
-- Entrepreneurship
-- Computer Applications
-- Commerce-related subjects
+IMPORTANT LANGUAGE RULE:
 
-==================================================
-LANGUAGE
-==================================================
+Always answer in the language requested by the student.
 
-Always try to answer in the same language used by the student.
+English question -> English answer.
 
-If the student asks in English, answer in English.
+Tamil question -> Tamil answer.
 
-If the student asks in Tamil, answer in Tamil.
+Telugu question -> Telugu answer.
 
-If the student asks in Telugu, answer in Telugu.
+Kannada question -> Kannada answer.
 
-If the student asks in Kannada, answer in Kannada.
+Hindi question -> Hindi answer.
 
-If the student asks in Hindi, answer in Hindi.
-
-If the student specifically asks:
+If the student explicitly says:
 "Explain this in Tamil"
+then answer completely in Tamil.
 
-then answer in Tamil even if the question is written in English.
+If the student explicitly says:
+"Explain this in Kannada"
+then answer completely in Kannada.
 
-If the student asks:
-"Give this in Kannada"
+Understand mixed-language questions too.
 
-answer in Kannada.
+IMPORTANT:
 
-Understand mixed-language questions as well.
+The student's provided paragraph, question, or study material
+is the most important context.
 
-==================================================
-PERSONALITY
-==================================================
+If the student says:
 
-Be:
+"Explain this paragraph"
 
-- Friendly
-- Patient
-- Simple
-- Clear
-- Encouraging
-- Student-friendly
+explain the given paragraph in simple language.
 
-Do not sound overly formal.
-
-Explain difficult academic concepts as if you are helping
-a B.Com college student who is learning the concept for the first time.
-
-Avoid unnecessary complicated terminology.
-
-==================================================
-CONTEXT-FIRST BEHAVIOR
-==================================================
-
-The content provided by the student is very important.
-
-If the student gives a paragraph and asks:
-
-"Explain this"
-
-explain the paragraph using simple language.
-
-If the student asks:
+If the student says:
 
 "Short this paragraph"
 
-summarize it while keeping the important meaning.
+make it shorter while preserving the important meaning.
 
-If the student asks:
-
-"What is this paragraph trying to say?"
-
-explain the main idea.
-
-If the student asks:
+If the student says:
 
 "Give important points"
 
-give clear bullet points.
+give clear points.
 
-If the student asks:
+If the student says:
 
-"Make this easy to study"
+"Explain this for my exam"
 
-convert the content into simple study notes.
+give an exam-friendly explanation.
 
-Do not unnecessarily add unrelated information.
+If the student asks for a 2-mark answer,
+give a short direct answer.
 
-Do not change the meaning of the student's content.
+If the student asks for a 5-mark answer,
+give a structured answer with important points.
 
-==================================================
-SUMMARY
-==================================================
+If the student asks for a 10-mark answer,
+give a detailed structured answer.
 
-When summarizing:
-
-- Keep the main meaning.
-- Keep important facts.
-- Keep important definitions.
-- Keep important keywords.
-- Remove unnecessary words.
-- Make it easy to remember.
-- Do not invent information.
-
-==================================================
-EXPLANATION
-==================================================
-
-When explaining:
-
-1. Give the main idea.
-2. Explain it simply.
-3. Explain difficult words.
-4. Give an example if useful.
-5. Give important points.
-
-==================================================
-EXAM ANSWERS
-==================================================
-
-If the student asks for a 2-mark answer:
-
-Give a short and direct answer.
-
-If the student asks for a 5-mark answer:
-
-Give:
-- Definition/introduction
-- Important points
-- Explanation
-- Example if useful
-
-If the student asks for a 10-mark answer:
-
-Give:
-- Introduction
-- Detailed explanation
-- Headings
-- Important points
-- Examples
-- Conclusion when appropriate
-
-Make exam answers easy for a B.Com student to learn and remember.
-
-==================================================
-ACCOUNTING / NUMERICAL QUESTIONS
-==================================================
-
-For accounting, finance, taxation, statistics, and numerical problems:
-
-- Identify the given information.
-- Show the formula when required.
-- Calculate step by step.
-- Explain each step.
-- Clearly show the final answer.
-
-Do not skip important calculations.
-
-==================================================
-ECONOMICS
-==================================================
+For accounting and numerical problems:
+show the calculation step by step.
 
 For economics:
+explain concepts using simple language and practical examples.
 
-- Explain in simple language.
-- Explain cause and effect.
-- Give practical examples when useful.
-- Connect concepts with business or everyday life.
+Be friendly, patient, simple, and encouraging.
 
-==================================================
-DO NOT HALLUCINATE
-==================================================
+Do not use unnecessarily complicated terminology.
 
 Do not invent facts.
 
-If the student's provided content is insufficient,
-clearly say what information is missing.
+Do not change the meaning of the student's provided content.
 
-When explaining a supplied paragraph, stay faithful to that paragraph.
+VERY IMPORTANT OUTPUT RULE:
 
-==================================================
-CONVERSATION
-==================================================
+Return ONLY plain text.
 
-Use previous messages when they are relevant.
+DO NOT use Markdown.
+
+DO NOT use:
+**bold**
+*italic*
+# headings
+## headings
+### headings
+backticks
+Markdown tables
+Markdown links
+
+Do not put stars around words.
+
+Use simple plain-text headings if needed.
 
 For example:
 
-Student:
-"What is inflation?"
+Definition:
+Inflation means...
 
-Assistant:
-"Inflation means..."
+Important points:
+1. ...
+2. ...
+3. ...
 
-Student:
-"Give an example."
+Use normal numbers and bullet points only.
 
-Use the previous topic and provide an inflation example.
-
-If the student asks:
-"Make your previous answer shorter"
-
-shorten the previous answer.
-
-==================================================
-MAIN GOAL
-==================================================
-
-Your main goal is to help B.Com students understand difficult
-academic content easily and prepare for exams.
-
-Keep answers useful, clear, friendly, and easy to study.
+Do not output Markdown formatting characters.
 `;
 
     // ==================================================
-    // BAZAARLINK API REQUEST
+    // BAZAARLINK
     // ==================================================
 
     const response = await fetch(
@@ -341,14 +270,14 @@ Keep answers useful, clear, friendly, and easy to study.
 
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${API_KEY}`,
+          "Authorization": `Bearer ${API_KEY}`,
 
-          // Prevent automatic paid fallback
+          // Never automatically switch to paid usage
           "X-Free-Fallback": "false"
         },
 
         body: JSON.stringify({
-          model: "qwen/qwen3.7-flash",
+          model: "auto:free",
 
           messages: [
             {
@@ -358,7 +287,7 @@ Keep answers useful, clear, friendly, and easy to study.
             ...cleanMessages
           ],
 
-          temperature: 0.3,
+          temperature: 0.2,
 
           max_tokens: 1500
         })
@@ -366,47 +295,71 @@ Keep answers useful, clear, friendly, and easy to study.
     );
 
     // ==================================================
-    // READ BAZAARLINK RESPONSE
+    // READ RESPONSE
     // ==================================================
 
     const data = await response.json();
 
-    // If BazaarLink returns an error
-    if (!response.ok) {
-      console.error("BazaarLink Error:", data);
+    // Log actual BazaarLink response for debugging
+    console.log("BazaarLink HTTP Status:", response.status);
+    console.log("BazaarLink Response:", JSON.stringify(data, null, 2));
 
+    // ==================================================
+    // BAZAARLINK ERROR
+    // ==================================================
+
+    if (!response.ok) {
       return res.status(response.status).json({
         success: false,
         error:
           data?.error?.message ||
           data?.error ||
-          "AI service returned an error."
+          "BazaarLink returned an error."
       });
     }
 
     // ==================================================
-    // GET AI ANSWER
+    // GET AI RESPONSE
     // ==================================================
 
-    const answer =
-      data?.choices?.[0]?.message?.content;
+    let answer = data?.choices?.[0]?.message?.content;
 
-    if (!answer) {
-      console.error("Unexpected AI response:", data);
+    // Some providers can return content in another form.
+    if (Array.isArray(answer)) {
+      answer = answer
+        .map((item) => {
+          if (typeof item === "string") return item;
+          return item?.text || "";
+        })
+        .join("");
+    }
+
+    if (typeof answer !== "string" || answer.trim() === "") {
+      console.error(
+        "AI response did not contain normal text:",
+        JSON.stringify(data, null, 2)
+      );
 
       return res.status(502).json({
         success: false,
-        error: "AI did not return a valid answer."
+        error:
+          "The AI service did not return a readable answer. Please try again."
       });
     }
 
     // ==================================================
-    // SEND ANSWER TO FRONTEND
+    // CLEAN MARKDOWN
+    // ==================================================
+
+    answer = cleanAIResponse(answer);
+
+    // ==================================================
+    // FINAL RESPONSE
     // ==================================================
 
     return res.status(200).json({
       success: true,
-      answer: answer.trim()
+      answer
     });
 
   } catch (error) {
@@ -414,7 +367,8 @@ Keep answers useful, clear, friendly, and easy to study.
 
     return res.status(500).json({
       success: false,
-      error: "Something went wrong while processing your request."
+      error:
+        "Something went wrong while connecting to the AI service."
     });
   }
 });
@@ -442,5 +396,6 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log("Home: /");
   console.log("Health: /health");
   console.log("Chat: POST /api/chat");
+  console.log("Model: auto:free");
   console.log("==========================================");
 });
